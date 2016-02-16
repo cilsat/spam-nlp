@@ -83,14 +83,6 @@ def eval(text, tfidf):
     #    print(feats[i], '\t', response[0,i])
     return response
 
-def mnb(data_dict, label_dict):
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.naive_bayes import MultinomialNB
-    fe = TfidfVectorizer(tokenizer=tokenize, stop_words='english')
-    trainfe = fe.fit_transform(data_dict.values())
-    clf = MultinomialNB().fit(trainfe, label_dict.values())
-    return clf, fe
-
 """
 receives pandas dataframe with 3 columns and outputs k training and k testing dataframes
 """
@@ -112,38 +104,50 @@ def kcv(dataframe, k):
 
     return train_test_sets
 
-def train_test(train_set, test_set, scores, method='mnb'):
+def train_test(args):
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    
+    # unpack arguments and make train/test data/label dicts/lists
+    train_set, test_set, features, classifier = args
     train_data_dict = dict(train_set['data'])
     train_label_dict = dict(train_set['labels'])
     test_data = test_set['data'].tolist()
     test_label = np.array(test_set['labels'])
 
+    # create tf idf spare matrix from training data
+    if features == 'tfidf':
+        fe = TfidfVectorizer(tokenizer=tokenize, stop_words='english')
+        trainfe = fe.fit_transform(train_data_dict.values())
+
     # train multinomial nb classifier on training data
-    clf, fe = mnb(train_data_dict, train_label_dict)
+    if classifier == 'mnb':
+        from sklearn.naive_bayes import MultinomialNB
+        clf = MultinomialNB().fit(trainfe, train_label_dict.values())
+    elif classifier == 'svm':
+        from sklearn.linear_model import SGDClassifier
+        clf = SGDClassifier(loss='hinge', penalty='l2', alpha=1e-3, n_iter=5, random_state=42).fit(trainfe, train_label_dict.values())
+
     # extract features from test data
     feats = fe.transform(test_data)
     # use trained classifier to generate class predictions from test features
     hyp = clf.predict(feats)
+
     # compare predictions with test labels
     stack = np.vstack((hyp, test_label)).T
     diffs = np.diff(stack, axis=-1)
+    #scores.append(diffs)
     score = 100 - np.sum(diffs)*100./diffs.size
-    scores.append(score)
+    print(score)
 
-def train_test_parallel(train_test_sets, method='mnb'):
-    from multiprocessing import Process
+    return score
 
-    processes = []
-    scores = []
-    for train_set, test_set in train_test_sets:
-        p = Process(target=train_test, args=(train_set, test_set, scores, method))
-        p.start()
-        processes.append(p)
+def train_test_parallel(train_test_sets, features='tfidf', classifier='mnb'):
+    from multiprocessing import Pool
 
-    for p in processes:
-        p.join()
+    p = Pool()
+    scores = p.map(train_test, [(train, test, features, classifier) for train, test in train_test_sets])
 
-    return np.mean(scores)
+    return scores
 
 if __name__ == "__main__":
     spam = build_token_dict(os.path.join(path, 'enron1/spam'))
