@@ -1,7 +1,6 @@
 #!/usr/bin/python
 
-import os
-import string
+import os, sys, string
 from itertools import chain
 import nltk
 from nltk.stem.porter import PorterStemmer
@@ -150,9 +149,17 @@ def train_test_parallel(train_test_sets, features='tfidf', classifier='mnb'):
     return scores
 
 if __name__ == "__main__":
-    spam = build_token_dict(os.path.join(path, 'enron1/spam'))
-    ham = buil_token_dict(os.path.join(path, 'enron1,ham'))
-    sham = dict(chain(ham.iteritems(), spam.iteritems())) 
+    args = sys.argv
+    if len(args) > 1:
+        classifier = args[1]
+        n_k = int(args[2])
+    else:
+        classifier = 'mnb'
+        n_k = 8
 
-    spamtf = tfidf(spam)
-    hamtf = tfidf(ham)
+    print(classifier, n_k)
+
+    df = load_enron('df-enron.pickle')
+    ksets = kcv(df, n_k)
+    scores = train_test_parallel(ksets, features='tfidf', classifier=classifier)
+
