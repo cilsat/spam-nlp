@@ -83,7 +83,8 @@ def eval(text, tfidf):
     return response
 
 """
-receives pandas dataframe with 3 columns and outputs k training and k testing dataframes
+k-fold cross validation
+receives pandas dataframe of complete dataset and partitions it into k training and k testing dataframes
 """
 def kcv(dataframe, k):
     import pandas as pd
@@ -107,35 +108,28 @@ def train_test(args):
     from sklearn.feature_extraction.text import TfidfVectorizer
     
     # unpack arguments and make train/test data/label dicts/lists
-    train_set, test_set, features, classifier = args
-    train_data_dict = dict(train_set['data'])
-    train_label_dict = dict(train_set['labels'])
-    test_data = test_set['data'].tolist()
-    test_label = np.array(test_set['labels'])
+    train, test, features, classifier = args
 
     # create tf idf spare matrix from training data
     if features == 'tfidf':
         fe = TfidfVectorizer(tokenizer=tokenize, stop_words='english')
-        trainfe = fe.fit_transform(train_data_dict.values())
+        trainfe = fe.fit_transform(train['data'])
 
     # train multinomial nb classifier on training data
     if classifier == 'mnb':
         from sklearn.naive_bayes import MultinomialNB
-        clf = MultinomialNB().fit(trainfe, train_label_dict.values())
+        clf = MultinomialNB().fit(trainfe, train['labels'])
     elif classifier == 'svm':
         from sklearn.linear_model import SGDClassifier
-        clf = SGDClassifier(loss='hinge', penalty='l2', alpha=1e-3, n_iter=5, random_state=42).fit(trainfe, train_label_dict.values())
+        clf = SGDClassifier(loss='hinge', penalty='l2', alpha=1e-3, n_iter=5, random_state=42).fit(trainfe, train['labels'])
 
     # extract features from test data
-    feats = fe.transform(test_data)
+    feats = fe.transform(test['data'])
     # use trained classifier to generate class predictions from test features
     hyp = clf.predict(feats)
 
     # compare predictions with test labels
-    stack = np.vstack((hyp, test_label)).T
-    diffs = np.diff(stack, axis=-1)
-    #scores.append(diffs)
-    score = 100 - np.sum(diffs)*100./diffs.size
+    score = np.mean(hyp == test['labels'])
     print(score)
 
     return score
@@ -159,7 +153,10 @@ if __name__ == "__main__":
 
     print(classifier, n_k)
 
+    # load the enron dataframe
     df = load_enron('df-enron.pickle')
+    # partition into k sets for cross validation
     ksets = kcv(df, n_k)
+    # train and test the k sets in parallel
     scores = train_test_parallel(ksets, features='tfidf', classifier=classifier)
 
