@@ -120,8 +120,9 @@ def train_test(args):
         from sklearn.naive_bayes import MultinomialNB
         clf = MultinomialNB().fit(trainfe, train['labels'])
     elif classifier == 'svm':
-        from sklearn.linear_model import SGDClassifier
-        clf = SGDClassifier(loss='hinge', penalty='l2', alpha=1e-3, n_iter=5, random_state=42).fit(trainfe, train['labels'])
+        from sklearn.svm import SVC
+        #clf = SGDClassifier(loss='hinge', penalty='l2', alpha=1e-3, n_iter=5, random_state=42).fit(trainfe, train['labels'])
+        clf = SVC().fit(trainfe, train['labels'])
 
     # extract features from test data
     feats = fe.transform(test['data'])
