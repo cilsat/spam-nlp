@@ -6,22 +6,20 @@ import cPickle as pickle
 import multiprocessing as mp
 
 import nltk
-#from nltk.stem.porter import PorterStemmer
+#from snowballstemmer import EnglishStemmer
 from nltk.stem.wordnet import WordNetLemmatizer
 from functools32 import lru_cache
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 import numpy as np
 
-
-
 path = os.path.dirname(os.path.abspath(__file__))
 
 max_terms = 11500
 
-#stemmer = PorterStemmer()
+#stemmer = EnglishStemmer()
 lmtzr = WordNetLemmatizer()
-#stem = lru_cache(maxsize=max_terms)(stemmer.stem)
+#stemWords = lru_cache(maxsize=max_terms)(stemmer.stemWords)
 lemmatize = lru_cache(maxsize=max_terms)(lmtzr.lemmatize)
 
 # ========================================================================= #
@@ -78,7 +76,7 @@ def prep_text(text):
 
 def tokenize(text):
     tokens = nltk.word_tokenize(text)
-    #tokens = [stem(w) for w in tokens]
+    #tokens = stemmer.stemWords(tokens)
     tokens = [lemmatize(w) for w in tokens]
     return tokens
 
@@ -136,12 +134,17 @@ def train_test(args):
         hyp = clf.predict(feats)
 
     # compare predictions with test labels
-    score = hyp == test['labels']
+    score = np.mean(hyp == test['labels'])
+    print(score)
 
-    return np.mean(score)
+    return score
 
 def train_test_parallel(train_test_sets, features='tfidf', classifier='mnb'):
-    scores = pool.map(train_test, [(train, test, features, classifier) for train, test in train_test_sets])
+    pool = mp.Pool(mp.cpu_count())
+    args = []
+    for train, test in train_test_sets:
+        args.append([train, test, features, classifier])
+    scores = pool.map(train_test, args)
 
     print(classifier)
     print('mean: ' + str(np.mean(scores)))
@@ -163,6 +166,7 @@ def save_features(args):
         pickle.dump([train_feats, test_feats, train['labels'], test['labels']], f)
 
 def save_features_parallel(ksets, features='tfidf'):
+    pool = mp.Pool(mp.cpu_count())
     pool.map(save_features, [[ksets[n][0], ksets[n][1], n, features] for n in range(len(ksets))])
 
 def load_features(args):
