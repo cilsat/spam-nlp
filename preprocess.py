@@ -2,14 +2,29 @@
 
 import os, sys, string
 from itertools import chain
+import cPickle as pickle
+import multiprocessing as mp
+
 import nltk
-from nltk.stem.porter import PorterStemmer
+#from nltk.stem.porter import PorterStemmer
+from nltk.stem.wordnet import WordNetLemmatizer
+from functools32 import lru_cache
+
 from sklearn.feature_extraction.text import TfidfVectorizer
 import numpy as np
 
-path = os.path.dirname(os.path.abspath(__file__))
-stemmer = PorterStemmer()
 
+
+path = os.path.dirname(os.path.abspath(__file__))
+
+max_terms = 11500
+
+#stemmer = PorterStemmer()
+lmtzr = WordNetLemmatizer()
+#stem = lru_cache(maxsize=max_terms)(stemmer.stem)
+lemmatize = lru_cache(maxsize=max_terms)(lmtzr.lemmatize)
+
+# ========================================================================= #
 """
 read all text documents in enron and save as pandas table.
 columns of table are [file], [text], and [label].
@@ -20,7 +35,7 @@ def save_enron(path='/home/cilsat/dev/nlp', form='dataframe'):
 
     e_dirs = [e for e in os.listdir(path) if e.startswith('enron')]
     for dirs in e_dirs:
-        data, labels = build_token_dict(dirs, getlabels=True)
+        data, labels = build_token_dict(os.path.join(path, dirs), getlabels=True)
         enron_data.update(data)
         enron_label.update(labels)
 
@@ -29,16 +44,16 @@ def save_enron(path='/home/cilsat/dev/nlp', form='dataframe'):
         df = pd.DataFrame([enron_data, enron_label]).T
         df.columns = ['data', 'labels']
 
-        import pickle
         with open('df-enron.pickle', 'wb') as f:
             pickle.dump(df, f, protocol=2)
 
 def load_enron(path='/home/cilsat/dev/nlp/df-enron.pickle'):
-    import pickle
     with open(path, 'rb') as f:
-        return pickle.load(f)
+        df = pickle.load(f)
+        return df.iloc[:-1]
 
 def build_token_dict(dirpath, getlabels=False):
+    print(dirpath)
     token_dict = {}
     labels = {}
     for subdir, dirs, files in os.walk(dirpath):
@@ -63,25 +78,11 @@ def prep_text(text):
 
 def tokenize(text):
     tokens = nltk.word_tokenize(text)
-    stems = [stemmer.stem(w) for w in tokens]
-    return stems
+    #tokens = [stem(w) for w in tokens]
+    tokens = [lemmatize(w) for w in tokens]
+    return tokens
 
-def count_tokens(tokens):
-    from collections import Counter
-    return Count(tokens)
-
-def tfidf(data_dict):
-    tfidf = TfidfVectorizer(tokenizer=tokenize, stop_words='english')
-    tfs = tfidf.fit_transform(data_dict.values())
-    return tfidf
-
-def eval(text, tfidf):
-    response = tfidf.transform([text])
-    #feats = tfidf.get_feature_names()
-    #for i in response.nonzero()[1]:
-    #    print(feats[i], '\t', response[0,i])
-    return response
-
+# ========================================================================= #
 """
 k-fold cross validation
 receives pandas dataframe of complete dataset and partitions it into k training and k testing dataframes
@@ -91,8 +92,6 @@ def kcv(dataframe, k):
     from sklearn.cross_validation import KFold
 
     dataframe['labels'] = dataframe['labels'].map({'ham':0, 'spam':1}).astype(bool)
-    #n_spam = len(dataframe.loc[dataframe['labels'] == 1)])
-    #n_ham = len(dataframe.loc[dataframe['labels'] == 0)])
 
     train_test_sets = []
     
@@ -105,20 +104,24 @@ def kcv(dataframe, k):
     return train_test_sets
 
 def train_test(args):
-    from sklearn.feature_extraction.text import TfidfVectorizer
     
     # unpack arguments and make train/test data/label dicts/lists
     train, test, features, classifier = args
 
     # create tf idf spare matrix from training data
     if features == 'tfidf':
-        fe = TfidfVectorizer(tokenizer=tokenize, stop_words='english')
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        #fe = TfidfVectorizer(tokenizer=tokenize, stop_words='english', max_df=0.1, max_features=11400)
+        fe = TfidfVectorizer(tokenizer=tokenize, stop_words='english', max_df=0.11, max_features=max_terms)
         trainfe = fe.fit_transform(train['data'])
 
     # train multinomial nb classifier on training data
     if classifier == 'mnb':
         from sklearn.naive_bayes import MultinomialNB
         clf = MultinomialNB().fit(trainfe, train['labels'])
+    if classifier == 'gnb':
+        from sklearn.naive_bayes import GaussianNB
+        clf = GaussianNB().fit(trainfe.toarray(), train['labels'])
     elif classifier == 'svm':
         from sklearn.linear_model import SGDClassifier
         clf = SGDClassifier(alpha=1e-3, random_state=42).fit(trainfe, train['labels'])
@@ -127,19 +130,71 @@ def train_test(args):
     # extract features from test data
     feats = fe.transform(test['data'])
     # use trained classifier to generate class predictions from test features
-    hyp = clf.predict(feats)
+    if classifier == 'gnb':
+        hyp = clf.predict(feats.toarray())
+    else:
+        hyp = clf.predict(feats)
 
     # compare predictions with test labels
-    score = np.mean(hyp == test['labels'])
-    print(score)
+    score = hyp == test['labels']
 
-    return score
+    return np.mean(score)
 
 def train_test_parallel(train_test_sets, features='tfidf', classifier='mnb'):
-    from multiprocessing import Pool
+    scores = pool.map(train_test, [(train, test, features, classifier) for train, test in train_test_sets])
 
-    p = Pool()
-    scores = p.map(train_test, [(train, test, features, classifier) for train, test in train_test_sets])
+    print(classifier)
+    print('mean: ' + str(np.mean(scores)))
+    print('var: ' + str(np.var(scores)) + '\n')
+
+    return scores
+
+# ========================================================================= #
+def save_features(args):
+    train, test, n, features = args
+    
+    if features == 'tfidf':
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        fe = TfidfVectorizer(tokenizer=tokenize, stop_words='english', max_df=0.115, max_features=max_terms)
+        train_feats = fe.fit_transform(train['data'])
+        test_feats = fe.transform(test['data'])
+    
+    with open(features + '/k' + str(n) + '.dev', 'wb') as f:
+        pickle.dump([train_feats, test_feats, train['labels'], test['labels']], f)
+
+def save_features_parallel(ksets, features='tfidf'):
+    pool.map(save_features, [[ksets[n][0], ksets[n][1], n, features] for n in range(len(ksets))])
+
+def load_features(args):
+    path, n = args
+    train_feats, test_feats, train_labels, test_labels = pickle.load(open(os.path.join(path, 'k' + str(n) + '.dev'), 'rb'))
+    return [train_feats, test_feats, train_labels, test_labels]
+
+def fast_train_test(args):
+    train_feats, test_feats, train_labels, test_labels, classifier, features = args
+
+    if classifier == 'mnb':
+        from sklearn.naive_bayes import MultinomialNB
+        clf = MultinomialNB().fit(train_feats, train_labels)
+    elif classifier == 'svm':
+        from sklearn.linear_model import SGDClassifier
+        clf = SGDClassifier().fit(train_feats, train_labels)
+
+    hyp = clf.predict(test_feats)
+    score = hyp == test_labels
+    avg = np.mean(score)
+    var = np.var(score)
+    
+    return avg
+
+"""
+train and test from saved tf-idf sparse matrices. path refers to location of .tfidf files
+"""
+def fast_train_test_parallel(path='.', classifier='mnb', features='tfidf'):
+    pool = mp.Pool(mp.cpu_count())
+    files = os.listdir(os.path.join(os.path.abspath(path), features))
+    kset = pool.map(load_features, [[os.path.join(path, features), n] for n in range(len(files))])
+    scores = pool.map(fast_train_test, [[train_feats, test_feats, train_labels, test_labels, classifier, features] for train_feats, test_feats, train_labels, test_labels in kset])
 
     return scores
 
@@ -148,16 +203,17 @@ if __name__ == "__main__":
     if len(args) > 1:
         classifier = args[1]
         n_k = int(args[2])
+        feats = args[3]
     else:
         classifier = 'mnb'
-        n_k = 8
+        n_k = 12
+        feats = 'tfidf'
 
-    print(classifier, n_k)
+    print(classifier + ', k=' + str(n_k) + ', features: ' + feats)
 
     # load the enron dataframe
     df = load_enron('df-enron.pickle')
     # partition into k sets for cross validation
     ksets = kcv(df, n_k)
     # train and test the k sets in parallel
-    scores = train_test_parallel(ksets, features='tfidf', classifier=classifier)
-
+    scores = train_test_parallel(ksets, features=feats, classifier=classifier)
