@@ -119,8 +119,8 @@ def train_test(args):
         trainfe = fe.fit_transform(train['data'])
     elif features == 'lsa':
         svd = TruncatedSVD(n_components=1000, random_state=42)
-        fe = TfidfVectorizer(tokenizer=string.split, stop_words='english', max_df=0.115, max_features=max_terms, sublinear_tf=True)
-        trainfe = svd.fit(fe.fit_transform(train['data'])).explained_variance_ratio_
+        fe = TfidfVectorizer(tokenizer=string.split, stop_words='english', max_df=0.115, max_features=max_terms)
+        trainfe = svd.fit_transform(fe.fit_transform(train['data']))
 
     # train multinomial nb classifier on training data
     if classifier == 'mnb':
