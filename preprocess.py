@@ -112,14 +112,14 @@ def train_test(args):
 
     # create tf idf spare matrix from training data
     if features == 'tfidf':
-        fe = TfidfVectorizer(tokenizer=tokenize, stop_words='english', max_df=0.11, max_features=max_terms)
+        fe = TfidfVectorizer(tokenizer=string.split, stop_words='english')
         trainfe = fe.fit_transform(train['data'])
     elif features == 'dict':
         fe = CountVectorizer(tokenizer=string.split, stop_words='english', binary=True)
         trainfe = fe.fit_transform(train['data'])
     elif features == 'lsa':
-        svd = TruncatedSVD(n_components=1000, random_state=42)
-        fe = TfidfVectorizer(tokenizer=string.split, stop_words='english', max_df=0.115, max_features=max_terms)
+        svd = TruncatedSVD(n_components=100, random_state=42)
+        fe = TfidfVectorizer(tokenizer=string.split, stop_words='english', max_df=0.115, max_features=11500)
         trainfe = svd.fit_transform(fe.fit_transform(train['data']))
 
     # train multinomial nb classifier on training data
@@ -146,7 +146,6 @@ def train_test(args):
 
     # compare predictions with test labels
     score = np.mean(hyp == test['labels'])
-    print(score)
 
     return score
 
@@ -157,7 +156,7 @@ def train_test_parallel(train_test_sets, features='tfidf', classifier='mnb'):
         args.append([train, test, features, classifier])
     scores = pool.map(train_test, args)
 
-    print(classifier)
+    print(scores)
     print('mean: ' + str(np.mean(scores)))
     print('var: ' + str(np.var(scores)) + '\n')
 
@@ -219,15 +218,15 @@ def fast_train_test_parallel(path='.', classifier='mnb', features='tfidf'):
 if __name__ == "__main__":
     args = sys.argv
     if len(args) > 1:
-        classifier = args[1]
-        n_k = int(args[2])
-        feats = args[3]
+        n_k = int(args[1])
+        feats = args[2]
+        classifier = args[3]
     else:
         classifier = 'mnb'
         n_k = 12
         feats = 'tfidf'
 
-    print(classifier + ', k=' + str(n_k) + ', features: ' + feats)
+    print(feats + ' + ' + classifier)
 
     # load the enron dataframe
     df = load_enron('df-enron.pickle')
@@ -235,4 +234,3 @@ if __name__ == "__main__":
     ksets = kcv(df, n_k)
     # train and test the k sets in parallel
     scores = train_test_parallel(ksets, features=feats, classifier=classifier)
-    print(scores)
