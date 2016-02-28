@@ -126,13 +126,17 @@ def train_test(args):
     if classifier == 'mnb':
         from sklearn.naive_bayes import MultinomialNB
         clf = MultinomialNB().fit(trainfe, train['labels'])
-    if classifier == 'gnb':
+    elif classifier == 'gnb':
         from sklearn.naive_bayes import GaussianNB
         clf = GaussianNB().fit(trainfe.toarray(), train['labels'])
     elif classifier == 'svm':
         from sklearn.linear_model import SGDClassifier
-        clf = SGDClassifier().fit(trainfe, train['labels'])
-
+        clf = SGDClassifier(loss='squared_hinge', penalty='l2').fit(trainfe, train['labels'])
+    elif classifier == 'log':
+        from sklearn.linear_model import SGDClassifier
+        clf = SGDClassifier(loss='log', penalty='l2').fit(trainfe, train['labels'])
+    elif classifier == 'rule':
+        pass
     # extract features from test data
     if features == 'lsa':
         feats = svd.transform(fe.transform(test['data']))
