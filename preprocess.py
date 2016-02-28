@@ -79,7 +79,7 @@ def prep_text(text):
     return alph
 
 def tokenize(text):
-    tokens = nltk.word_tokenize(text)
+    tokens = text.split()
     #tokens = stemmer.stemWords(tokens)
     tokens = [lemmatize(w) for w in tokens]
     return tokens
@@ -112,15 +112,20 @@ def train_test(args):
 
     # create tf idf spare matrix from training data
     if features == 'tfidf':
-        fe = TfidfVectorizer(tokenizer=string.split, stop_words='english')
+        fe = TfidfVectorizer(tokenizer=tokenize, stop_words='english', max_features=1290)
         trainfe = fe.fit_transform(train['data'])
     elif features == 'dict':
-        fe = CountVectorizer(tokenizer=string.split, stop_words='english', binary=True)
+        fe = CountVectorizer(tokenizer=tokenize, stop_words='english', binary=True)
         trainfe = fe.fit_transform(train['data'])
     elif features == 'lsa':
         svd = TruncatedSVD(n_components=100, random_state=42)
-        fe = TfidfVectorizer(tokenizer=string.split, stop_words='english', max_df=0.115, max_features=11500)
+        fe = TfidfVectorizer(tokenizer=tokenize, stop_words='english', max_df=0.115, max_features=11500)
         trainfe = svd.fit_transform(fe.fit_transform(train['data']))
+    elif features == 'rule':
+        hamfe = CountVectorizer(tokenizer=tokenize, stop_words='english', max_features=1150)
+        spamfe = CountVectorizer(tokenizer=tokenize, stop_words='english', max_features=1150)
+        hamfit = hamfe.fit_transform(train['data'].loc[train['labels'] == 0])
+        spamfit = spamfe.fit_transform(train['data'].loc[train['labels'] == 1])
 
     # train multinomial nb classifier on training data
     if classifier == 'mnb':
@@ -136,7 +141,10 @@ def train_test(args):
         from sklearn.linear_model import SGDClassifier
         clf = SGDClassifier(loss='log', penalty='l2').fit(trainfe, train['labels'])
     elif classifier == 'rule':
-        pass
+        hamfeats = hamfe.transform(test['data'])
+        spamfeats = spamfe.transform(test['data'])
+        hyp = np.array(hamfeats.sum(axis=1) < spamfeats.sum(axis=1)).reshape(-1).T
+        
     # extract features from test data
     if features == 'lsa':
         feats = svd.transform(fe.transform(test['data']))
@@ -145,6 +153,8 @@ def train_test(args):
     # use trained classifier to generate class predictions from test features
     if classifier == 'gnb':
         hyp = clf.predict(feats.toarray())
+    elif classifier == 'rule':
+        pass
     else:
         hyp = clf.predict(feats)
 
