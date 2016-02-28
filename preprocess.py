@@ -5,12 +5,16 @@ from itertools import chain
 import cPickle as pickle
 import multiprocessing as mp
 
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.decomposition import TruncatedSVD
+from sklearn.pipeline import make_pipeline
+
 import nltk
 #from snowballstemmer import EnglishStemmer
 from nltk.stem.wordnet import WordNetLemmatizer
 from functools32 import lru_cache
 
-from sklearn.feature_extraction.text import TfidfVectorizer
 import numpy as np
 
 path = os.path.dirname(os.path.abspath(__file__))
@@ -108,10 +112,15 @@ def train_test(args):
 
     # create tf idf spare matrix from training data
     if features == 'tfidf':
-        from sklearn.feature_extraction.text import TfidfVectorizer
-        #fe = TfidfVectorizer(tokenizer=tokenize, stop_words='english', max_df=0.1, max_features=11400)
         fe = TfidfVectorizer(tokenizer=tokenize, stop_words='english', max_df=0.11, max_features=max_terms)
         trainfe = fe.fit_transform(train['data'])
+    elif features == 'dict':
+        fe = CountVectorizer(tokenizer=string.split, stop_words='english', binary=True)
+        trainfe = fe.fit_transform(train['data'])
+    elif features == 'lsa':
+        svd = TruncatedSVD(n_components=1000, random_state=42)
+        fe = TfidfVectorizer(tokenizer=string.split, stop_words='english', max_df=0.115, max_features=max_terms, sublinear_tf=True)
+        trainfe = svd.fit(fe.fit_transform(train['data'])).explained_variance_ratio_
 
     # train multinomial nb classifier on training data
     if classifier == 'mnb':
@@ -122,11 +131,13 @@ def train_test(args):
         clf = GaussianNB().fit(trainfe.toarray(), train['labels'])
     elif classifier == 'svm':
         from sklearn.linear_model import SGDClassifier
-        clf = SGDClassifier(alpha=1e-3, random_state=42).fit(trainfe, train['labels'])
-        #clf = SVC().fit(trainfe, train['labels'])
+        clf = SGDClassifier().fit(trainfe, train['labels'])
 
     # extract features from test data
-    feats = fe.transform(test['data'])
+    if features == 'lsa':
+        feats = svd.transform(fe.transform(test['data']))
+    else:
+        feats = fe.transform(test['data'])
     # use trained classifier to generate class predictions from test features
     if classifier == 'gnb':
         hyp = clf.predict(feats.toarray())
@@ -199,6 +210,9 @@ def fast_train_test_parallel(path='.', classifier='mnb', features='tfidf'):
     files = os.listdir(os.path.join(os.path.abspath(path), features))
     kset = pool.map(load_features, [[os.path.join(path, features), n] for n in range(len(files))])
     scores = pool.map(fast_train_test, [[train_feats, test_feats, train_labels, test_labels, classifier, features] for train_feats, test_feats, train_labels, test_labels in kset])
+    pool.close()
+    pool.terminate()
+    pool.join()
 
     return scores
 
@@ -221,3 +235,4 @@ if __name__ == "__main__":
     ksets = kcv(df, n_k)
     # train and test the k sets in parallel
     scores = train_test_parallel(ksets, features=feats, classifier=classifier)
+    print(scores)
